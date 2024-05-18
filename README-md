@@ -1,0 +1,7 @@
+
+
+
+## Section
+- Understanding the Mistral 7B Model
+- Methods of how to use the model (locally and via API)
+- Deploying Mistral 7B to Azure for inference with vLLM
