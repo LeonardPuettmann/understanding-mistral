@@ -12,8 +12,6 @@ from mistral_common.tokens.tokenizers.mistral import MistralTokenizer
 from simple_parsing.helpers import Serializable
 from torch import nn
 
-device = torch.device("cpu")
-
 
 @dataclass
 class ModelArgs(Serializable):
@@ -93,7 +91,7 @@ class Attention(nn.Module):
                 self.args.head_dim,
             ),
             dtype=torch.float16,
-        ).to(device)
+        ).cuda()
         self.cache_v = torch.empty(
             (
                 args.max_batch_size,
@@ -102,7 +100,7 @@ class Attention(nn.Module):
                 self.args.head_dim,
             ),
             dtype=torch.float16,
-        ).to(device)
+        ).cuda()
 
     def forward(
         self,
@@ -123,8 +121,8 @@ class Attention(nn.Module):
         scatter_pos = positions[None, :, None, None].repeat(
             bsz, 1, self.n_kv_heads, self.args.head_dim
         )
-        self.cache_k[:bsz].scatter_(dim=1, index=scatter_pos, src=xk)
-        self.cache_v[:bsz].scatter_(dim=1, index=scatter_pos, src=xv)
+        self.cache_k[:bsz].scatter_(dim=1, index=scatter_pos, src=xk.to(self.cache_k.dtype))
+        self.cache_v[:bsz].scatter_(dim=1, index=scatter_pos, src=xv.to(self.cache_v.dtype))
 
         if positions.shape[0] > 1:
             # prefill
@@ -230,7 +228,9 @@ class Transformer(nn.Module):
         self.output = nn.Linear(args.dim, args.vocab_size, bias=False)
 
         theta = self.args.rope_theta or 1000000.0
-        self.freqs_cis = precompute_freqs_cis(self.args.head_dim, 128_000, theta).to(device)
+        self.freqs_cis = precompute_freqs_cis(self.args.head_dim, 128_000, theta).to(
+            "cuda"
+        )
 
     def forward(
         self,
@@ -260,7 +260,7 @@ class Transformer(nn.Module):
 
     @staticmethod
     def from_folder(
-        folder: Path, max_batch_size: int = 1, device="cpu", dtype=torch.float16
+        folder: Path, max_batch_size: int = 1, device="cuda", dtype=torch.float16
     ):
         with open(Path(folder) / "params.json", "r") as f:
             model_args = ModelArgs.from_dict(json.load(f))
@@ -318,7 +318,7 @@ def generate(
         (len(prompts), max_prompt_len),
         tokenizer._model.pad_id(),
         dtype=torch.long,
-        device="cpu",
+        device="cuda",
     )
     for i, encoded in enumerate(encoded_prompts):
         input_tokens[i, : len(encoded)] = torch.tensor(encoded).to(input_tokens)
@@ -326,7 +326,7 @@ def generate(
     input_mask = input_tokens != tokenizer._model.pad_id()
 
     # pre-fill
-    positions = torch.arange(0, min_prompt_len).to(device)
+    positions = torch.arange(0, min_prompt_len).to("cuda")
     logits = model.forward(input_tokens[:, :min_prompt_len], positions)
     logprobs = nn.functional.log_softmax(logits, dim=-1)
 
