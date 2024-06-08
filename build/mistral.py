@@ -12,6 +12,11 @@ from mistral_common.tokens.tokenizers.mistral import MistralTokenizer
 from simple_parsing.helpers import Serializable
 from torch import nn
 
+from mistral_common.protocol.instruct.messages import (
+    UserMessage,
+)
+from mistral_common.protocol.instruct.request import ChatCompletionRequest
+
 
 @dataclass
 class ModelArgs(Serializable):
@@ -90,7 +95,7 @@ class Attention(nn.Module):
                 self.n_kv_heads,
                 self.args.head_dim,
             ),
-            dtype=torch.float16,
+            dtype=torch.float,
         ).cuda()
         self.cache_v = torch.empty(
             (
@@ -99,7 +104,7 @@ class Attention(nn.Module):
                 self.n_kv_heads,
                 self.args.head_dim,
             ),
-            dtype=torch.float16,
+            dtype=torch.float,
         ).cuda()
 
     def forward(
@@ -260,7 +265,7 @@ class Transformer(nn.Module):
 
     @staticmethod
     def from_folder(
-        folder: Path, max_batch_size: int = 1, device="cuda", dtype=torch.float16
+        folder: Path, max_batch_size: int = 1, device="cuda", dtype=torch.float
     ):
         with open(Path(folder) / "params.json", "r") as f:
             model_args = ModelArgs.from_dict(json.load(f))
@@ -300,30 +305,35 @@ def load_tokenizer(model_path: Path) -> MistralTokenizer:
 
     tokenizer = MistralTokenizer.from_file(str(model_path / tokenizer[0]))
 
-    return tokenizer
-
+    return tokenizer 
 
 @torch.no_grad()
 def generate(
     prompts: List[str], model: Transformer, tokenizer: Tokenizer, max_tokens: int
 ):
-    encoded_prompts = [
-        tokenizer.encode(prompt, bos=True, eos=False) for prompt in prompts
+    encoding = [
+        tokenizer.encode_chat_completion(
+            ChatCompletionRequest(
+                messages=[UserMessage(content=prompt)],
+                model="open-mistral-7b",
+            )
+        ) for prompt in prompts
     ]
+    encoded_prompts = [e.tokens for e in encoding]
     prompt_lens = [len(x) for x in encoded_prompts]
     min_prompt_len = min(prompt_lens)
     max_prompt_len = max(prompt_lens)
 
     input_tokens = torch.full(
         (len(prompts), max_prompt_len),
-        tokenizer._model.pad_id(),
+        -1,
         dtype=torch.long,
         device="cuda",
     )
     for i, encoded in enumerate(encoded_prompts):
         input_tokens[i, : len(encoded)] = torch.tensor(encoded).to(input_tokens)
 
-    input_mask = input_tokens != tokenizer._model.pad_id()
+    input_mask = input_tokens != -1
 
     # pre-fill
     positions = torch.arange(0, min_prompt_len).to("cuda")
