@@ -7,7 +7,7 @@ https://huggingface.co/LeonardPuettmann/MiniMistral-8M
 
 ### Loss 
 The loss is pretty unspectacular. I just trained for one epoch:
-![Loss Curve](logs/loss.png)
+![Loss Curve](loss.png)
 
 ### How to use
 Please don't. You should probably use Mistral 7B instead: [mistralai/Mistral-7B-v0.3](https://huggingface.co/mistralai/Mistral-7B-v0.3)
